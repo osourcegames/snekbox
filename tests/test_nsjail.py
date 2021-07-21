@@ -95,6 +95,24 @@ class NsJailTests(unittest.TestCase):
         self.assertIn("-9", exit_codes)
         self.assertEqual(result.stderr, None)
 
+    def test_multiprocessing_pool(self):
+        # Validates that shm is working as expected
+        code = dedent("""
+            from multiprocessing import Pool
+
+            def f(x):
+                return x*x
+
+            if __name__ == '__main__':
+                with Pool(2) as p:
+                    print(p.map(f, [1, 2, 3]))
+        """)
+
+        result = self.nsjail.python3(code)
+
+        self.assertEqual(result.stdout, "[1, 4, 9]\n")
+        self.assertEqual(result.returncode, 0)
+
     def test_read_only_file_system(self):
         for path in ("/", "/etc", "/lib", "/lib64", "/snekbox", "/usr"):
             with self.subTest(path=path):
@@ -184,31 +202,27 @@ class NsJailTests(unittest.TestCase):
             log.output
         )
 
-    def test_shm_and_tmp_not_mounted(self):
-        for path in ("/dev/shm", "/run/shm", "/tmp"):
-            with self.subTest(path=path):
-                code = dedent(f"""
-                    with open('{path}/test', 'wb') as file:
-                        file.write(bytes([255]))
-                """).strip()
-
-                result = self.nsjail.python3(code)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn("No such file or directory", result.stdout)
-                self.assertEqual(result.stderr, None)
-
-    def test_multiprocessing_shared_memory_disabled(self):
+    def test_tmp_not_mounted(self):
         code = dedent("""
-            from multiprocessing.shared_memory import SharedMemory
-            try:
-                SharedMemory('test', create=True, size=16)
-            except FileExistsError:
-                pass
+            with open('/tmp/test', 'wb') as file:
+                file.write(bytes([255]))
         """).strip()
 
         result = self.nsjail.python3(code)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Function not implemented", result.stdout)
+        self.assertIn("No such file or directory", result.stdout)
+        self.assertEqual(result.stderr, None)
+
+    def test_multiprocessing_shared_memory_limited(self):
+        code = dedent("""
+            from multiprocessing import shared_memory
+            shm_a = shared_memory.SharedMemory(create=True, size=45_000_000)
+            shm_a.buf[:45_000_000] = bytearray([1] * 45_000_000)
+        """).strip()
+
+        result = self.nsjail.python3(code)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("File too large", result.stdout)
         self.assertEqual(result.stderr, None)
 
     def test_numpy_import(self):
