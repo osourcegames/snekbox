@@ -48,11 +48,10 @@ class NsJailTests(unittest.TestCase):
         self.assertEqual(result.stderr, None)
 
     def test_subprocess_resource_unavailable(self):
-        code = dedent("""
+        code = dedent(f"""
             import subprocess
 
-            # Max PIDs is 5.
-            for _ in range(6):
+            for _ in range({self.nsjail.config.cgroup_pids_max + 1}):
                 print(subprocess.Popen(
                     [
                         '/usr/local/bin/python3',
